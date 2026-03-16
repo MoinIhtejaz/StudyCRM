@@ -2,6 +2,11 @@ import { supabaseClient } from "../lib/supabase";
 import type { Assignment, Category, ReminderLogEntry, StudySnapshot, WeeklyOccurrence } from "../types/models";
 import type { StudyRepository } from "./types";
 
+interface DbError {
+  message: string;
+  code?: string;
+}
+
 interface CategoryRow {
   id: string;
   name: string;
@@ -42,6 +47,12 @@ interface OccurrenceRow {
   updated_at: string;
 }
 
+interface OccurrenceIdentityRow {
+  id: string;
+  assignment_id: string;
+  cycle_start_at: string;
+}
+
 interface ReminderRow {
   id: string;
   reminder_key: string;
@@ -59,7 +70,7 @@ const ensureClient = () => {
   return supabaseClient;
 };
 
-const assertNoError = (error: { message: string } | null, context: string) => {
+const assertNoError = (error: DbError | null, context: string) => {
   if (error) {
     throw new Error(`${context}: ${error.message}`);
   }
@@ -212,6 +223,31 @@ const fromReminderRow = (row: ReminderRow): ReminderLogEntry => ({
   channel: row.channel
 });
 
+const toOccurrenceKey = (assignmentId: string, cycleStartAt: string): string =>
+  `${assignmentId}::${cycleStartAt}`;
+
+const dedupeOccurrenceRows = (rows: OccurrenceRow[]): OccurrenceRow[] => {
+  const byKey = new Map<string, OccurrenceRow>();
+
+  for (const row of rows) {
+    const key = toOccurrenceKey(row.assignment_id, row.cycle_start_at);
+    const existing = byKey.get(key);
+
+    if (!existing || existing.updated_at < row.updated_at) {
+      byKey.set(key, row);
+    }
+  }
+
+  return Array.from(byKey.values());
+};
+
+const isOccurrenceDuplicateKeyError = (error: DbError): boolean => {
+  return (
+    error.code === "23505" &&
+    error.message.includes("assignment_occurrences_user_id_assignment_id_cycle_start_at_key")
+  );
+};
+
 const syncTableById = async <TRow extends { id: string }>(
   table: string,
   rows: TRow[]
@@ -234,6 +270,62 @@ const syncTableById = async <TRow extends { id: string }>(
     const { error: deleteError } = await client.from(table).delete().in("id", staleIds);
     assertNoError(deleteError, `Unable to delete stale rows from ${table}`);
   }
+};
+
+const syncOccurrenceRows = async (rows: OccurrenceRow[]): Promise<void> => {
+  const client = ensureClient();
+  const dedupedRows = dedupeOccurrenceRows(rows);
+
+  const runSync = async (): Promise<DbError | null> => {
+    const { data: existingRows, error: selectError } = await client
+      .from("assignment_occurrences")
+      .select("id, assignment_id, cycle_start_at");
+    assertNoError(selectError, "Unable to read ids from assignment_occurrences");
+
+    const identityRows = (existingRows ?? []) as OccurrenceIdentityRow[];
+    const existingIds = identityRows.map((row) => row.id);
+    const idByCompositeKey = new Map(
+      identityRows.map((row) => [toOccurrenceKey(row.assignment_id, row.cycle_start_at), row.id])
+    );
+
+    const normalizedRows = dedupedRows.map((row) => {
+      const existingId = idByCompositeKey.get(toOccurrenceKey(row.assignment_id, row.cycle_start_at));
+      return existingId ? { ...row, id: existingId } : row;
+    });
+
+    if (normalizedRows.length > 0) {
+      const { error: upsertError } = await client
+        .from("assignment_occurrences")
+        .upsert(normalizedRows, { onConflict: "id" });
+
+      if (upsertError) {
+        return upsertError as DbError;
+      }
+    }
+
+    const keepIds = new Set(normalizedRows.map((row) => row.id));
+    const staleIds = existingIds.filter((id) => !keepIds.has(id));
+
+    if (staleIds.length > 0) {
+      const { error: deleteError } = await client.from("assignment_occurrences").delete().in("id", staleIds);
+      assertNoError(deleteError, "Unable to delete stale rows from assignment_occurrences");
+    }
+
+    return null;
+  };
+
+  const firstError = await runSync();
+  if (!firstError) {
+    return;
+  }
+
+  if (!isOccurrenceDuplicateKeyError(firstError)) {
+    assertNoError(firstError, "Unable to upsert assignment_occurrences");
+    return;
+  }
+
+  const retryError = await runSync();
+  assertNoError(retryError, "Unable to upsert assignment_occurrences");
 };
 
 export class SupabaseStudyRepository implements StudyRepository {
@@ -273,10 +365,7 @@ export class SupabaseStudyRepository implements StudyRepository {
       snapshot.assignments.map(toAssignmentRow)
     );
 
-    await syncTableById(
-      "assignment_occurrences",
-      snapshot.occurrences.map(toOccurrenceRow)
-    );
+    await syncOccurrenceRows(snapshot.occurrences.map(toOccurrenceRow));
 
     await syncTableById(
       "reminder_logs",
