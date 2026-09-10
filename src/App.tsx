@@ -5,14 +5,12 @@ import { AssignmentsPage } from "./pages/AssignmentsPage";
 import { WeeklyPage } from "./pages/WeeklyPage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { SettingsPage } from "./pages/SettingsPage";
-import { AuthPage } from "./pages/AuthPage";
 import { useStudyCRM } from "./hooks/useStudyCRM";
-import { useSupabaseAuth } from "./hooks/useSupabaseAuth";
 import { useToasts } from "./hooks/useToasts";
 import { useBrowserNotifications } from "./hooks/useBrowserNotifications";
 import { getActiveWeeklyTasks } from "./lib/weeklyEngine";
 import { isDateThisWeek, isStandardOverdue, isStandardUrgent } from "./lib/dateUtils";
-import { userToSid } from "./lib/auth";
+import { isSupabaseConfigured } from "./lib/supabase";
 import type { Assignment } from "./types/models";
 import { ToastViewport } from "./components/ToastViewport";
 
@@ -35,26 +33,13 @@ const standardAssignments = (assignments: Assignment[]) =>
   );
 
 export default function App() {
-  const auth = useSupabaseAuth();
-  const study = useStudyCRM(Boolean(auth.session));
+  const study = useStudyCRM();
   const toasts = useToasts();
   const notifications = useBrowserNotifications();
   const [now, setNow] = useState(() => new Date());
-  const activeSid = userToSid(auth.user?.email, auth.user?.user_metadata?.sid as string | undefined);
-  const handleSignOut = async () => {
-    try {
-      await auth.signOut();
-    } catch (error) {
-      toasts.pushToast({
-        title: "Sign out failed",
-        message: error instanceof Error ? error.message : "Unable to sign out.",
-        type: "error"
-      });
-    }
-  };
 
   useEffect(() => {
-    if (!auth.session || study.loading) {
+    if (study.loading) {
       return;
     }
 
@@ -91,7 +76,7 @@ export default function App() {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [auth.session, study.loading, study.runMaintenance, notifications, toasts]);
+  }, [study.loading, study.runMaintenance, notifications, toasts]);
 
   useEffect(() => {
     if (!study.error) {
@@ -104,18 +89,6 @@ export default function App() {
       type: "warning"
     });
   }, [study.error, toasts]);
-
-  useEffect(() => {
-    if (!auth.error) {
-      return;
-    }
-
-    toasts.pushToast({
-      title: "Auth notice",
-      message: auth.error,
-      type: "warning"
-    });
-  }, [auth.error, toasts]);
 
   const standards = useMemo(() => standardAssignments(study.snapshot.assignments), [study.snapshot.assignments]);
   const openStandards = useMemo(() => standards.filter((assignment) => !assignment.isCompleted), [standards]);
@@ -159,7 +132,7 @@ export default function App() {
     [openStandards.length, activeWeeklyTasks.length, urgentCount, overdueCount, completedThisWeek]
   );
 
-  if (auth.loading || (auth.session && study.loading)) {
+  if (study.loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-100">
         <div className="rounded-xl border border-slate-200 bg-white px-6 py-4 text-sm text-slate-600 shadow-sm">
@@ -169,7 +142,7 @@ export default function App() {
     );
   }
 
-  if (!auth.isConfigured) {
+  if (!isSupabaseConfigured) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4">
         <div className="w-full max-w-xl rounded-2xl border border-rose-300 bg-white p-6 shadow-sm">
@@ -177,18 +150,9 @@ export default function App() {
           <p className="mt-2 text-sm text-slate-700">
             Add environment keys to continue:
           </p>
-          <pre className="mt-3 overflow-auto rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">{`VITE_STORAGE_MODE=supabase\nVITE_SUPABASE_URL=...\nVITE_SUPABASE_ANON_KEY=...`}</pre>
+          <pre className="mt-3 overflow-auto rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">{`VITE_SUPABASE_URL=...\nVITE_SUPABASE_ANON_KEY=...`}</pre>
         </div>
       </div>
-    );
-  }
-
-  if (!auth.session) {
-    return (
-      <>
-        <AuthPage onSignIn={auth.signIn} onSignUp={auth.signUp} />
-        <ToastViewport toasts={toasts.toasts} onDismiss={toasts.removeToast} />
-      </>
     );
   }
 
@@ -208,15 +172,8 @@ export default function App() {
                 Storage: Supabase
               </div>
               <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
-                SID: {activeSid}
+                Personal workspace
               </div>
-              <button
-                type="button"
-                onClick={() => void handleSignOut()}
-                className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-              >
-                Sign out
-              </button>
             </div>
           </div>
 

@@ -36,7 +36,9 @@ export const SettingsPage = ({
           </div>
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
             <p className="text-xs uppercase tracking-wide text-slate-500">Storage mode</p>
-            <p className="mt-1 font-medium text-slate-900">Supabase mode</p>
+            <p className="mt-1 font-medium text-slate-900">
+              {storageMode === "supabase" ? "Supabase personal mode" : "Local mode"}
+            </p>
           </div>
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
             <p className="text-xs uppercase tracking-wide text-slate-500">Notification API</p>

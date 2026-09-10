@@ -156,7 +156,7 @@ const upsertAssignment = (
   return currentAssignments.map((assignment) => (assignment.id === draft.id ? draft : assignment));
 };
 
-export const useStudyCRM = (enabled = true) => {
+export const useStudyCRM = () => {
   const [snapshot, setSnapshot] = useState<StudySnapshot>(emptySnapshot);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -180,14 +180,6 @@ export const useStudyCRM = (enabled = true) => {
   }, []);
 
   const initialize = useCallback(async () => {
-    if (!enabled) {
-      snapshotRef.current = emptySnapshot;
-      setSnapshot(emptySnapshot);
-      setError(null);
-      setLoading(false);
-      return;
-    }
-
     setLoading(true);
     setError(null);
     setStorageMode("supabase");
@@ -214,7 +206,7 @@ export const useStudyCRM = (enabled = true) => {
     } finally {
       setLoading(false);
     }
-  }, [enabled]);
+  }, []);
 
   useEffect(() => {
     void initialize();
@@ -226,10 +218,6 @@ export const useStudyCRM = (enabled = true) => {
   }, []);
 
   const runMaintenance = useCallback(async (): Promise<ReminderEvent[]> => {
-    if (!enabled) {
-      return [];
-    }
-
     const nowIso = new Date().toISOString();
     const current = snapshotRef.current;
 
@@ -256,7 +244,7 @@ export const useStudyCRM = (enabled = true) => {
     }
 
     return reminderResult.events;
-  }, [enabled, persistSnapshot]);
+  }, [persistSnapshot]);
 
   const mutateSnapshot = useCallback(
     async (mutator: (current: StudySnapshot) => StudySnapshot) => {

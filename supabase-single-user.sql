@@ -1,56 +1,3 @@
-# StudyCRM
-
-StudyCRM is now a personal-use Supabase assignment CRM. There is no login, no SID, and no per-user workspace. The app opens straight into your dashboard and saves directly to one shared Supabase dataset.
-
-## What changed
-
-- Removed the login and signup flow.
-- Removed SID-based multi-user behavior.
-- Simplified the app to a single personal workspace.
-- Kept Supabase as the storage layer.
-
-## Important privacy note
-
-This version is meant for personal use only. Because the frontend uses the Supabase anon key and there is no user authentication anymore, your deployed app should be treated as private. If you put it on a public URL, anyone who can reach the app can also read and write the data unless you add another protection layer such as Vercel deployment protection, a reverse proxy password gate, or you keep the app local-only.
-
-## Environment variables
-
-Your `.env` only needs:
-
-```env
-VITE_SUPABASE_URL=https://<project-ref>.supabase.co
-VITE_SUPABASE_ANON_KEY=<your-publishable-anon-key>
-```
-
-## Local development
-
-```bash
-npm install
-npm run dev
-```
-
-## Supabase setup
-
-1. Open your Supabase project.
-2. Go to `Project Settings -> API`.
-3. Copy the project URL into `VITE_SUPABASE_URL`.
-4. Copy the publishable / anon key into `VITE_SUPABASE_ANON_KEY`.
-5. Open the SQL Editor.
-6. Paste the SQL from `supabase-single-user.sql` or the block below.
-7. Run the SQL once.
-8. Start the app.
-
-## What the SQL does
-
-- Removes the old auth-specific profile/signup trigger if it exists.
-- Disables RLS on the StudyCRM tables.
-- Removes `user_id` ownership columns from the app tables.
-- Keeps your assignments/categories/occurrences/reminder logs tables.
-- Rebuilds the unique constraints for single-user mode.
-
-## SQL to paste into Supabase
-
-```sql
 create extension if not exists pgcrypto;
 
 do $$
@@ -190,10 +137,3 @@ create index if not exists assignments_due_idx on public.assignments (due_at);
 create index if not exists assignments_type_idx on public.assignments (type);
 create index if not exists occurrences_cycle_idx on public.assignment_occurrences (cycle_start_at desc);
 create index if not exists reminder_logs_triggered_idx on public.reminder_logs (triggered_at desc);
-```
-
-## Notes
-
-- If your database still uses the older auth-based schema, the app will now surface a clearer error telling you to run the personal-use migration.
-- The app does not touch `.env` or `.git` during normal code updates.
-- Browser notifications still only work reliably while the app is open.

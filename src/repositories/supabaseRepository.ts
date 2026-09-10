@@ -70,9 +70,22 @@ const ensureClient = () => {
   return supabaseClient;
 };
 
+const isPersonalSchemaMismatch = (message: string): boolean => {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("row-level security") ||
+    lower.includes("permission denied") ||
+    (lower.includes("user_id") && (lower.includes("null value") || lower.includes("not-null")))
+  );
+};
+
 const assertNoError = (error: DbError | null, context: string) => {
   if (error) {
-    throw new Error(`${context}: ${error.message}`);
+    const guidance = isPersonalSchemaMismatch(error.message)
+      ? " Run the personal-use Supabase migration from README.md or supabase-single-user.sql."
+      : "";
+
+    throw new Error(`${context}: ${error.message}${guidance}`);
   }
 };
 
@@ -244,7 +257,8 @@ const dedupeOccurrenceRows = (rows: OccurrenceRow[]): OccurrenceRow[] => {
 const isOccurrenceDuplicateKeyError = (error: DbError): boolean => {
   return (
     error.code === "23505" &&
-    error.message.includes("assignment_occurrences_user_id_assignment_id_cycle_start_at_key")
+    (error.message.includes("assignment_occurrences_user_id_assignment_id_cycle_start_at_key") ||
+      error.message.includes("assignment_occurrences_assignment_id_cycle_start_at_key"))
   );
 };
 
